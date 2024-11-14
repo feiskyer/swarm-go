@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/feiskyer/swarm-go"
 )
@@ -15,13 +16,18 @@ func createClient() (*swarm.Swarm, error) {
 	}
 
 	azureApiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	azureApiBase := os.Getenv("AZURE_OPENAI_API_BASE")
+
+	var missingEnvs []string
 	if azureApiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY or AZURE_OPENAI_API_KEY is not set")
+		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_KEY")
+	}
+	if azureApiBase == "" {
+		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_BASE")
 	}
 
-	azureApiBase := os.Getenv("AZURE_OPENAI_API_BASE")
-	if azureApiBase == "" {
-		return nil, fmt.Errorf("AZURE_OPENAI_API_BASE is not set")
+	if len(missingEnvs) > 0 {
+		return nil, fmt.Errorf("required environment variables not set: %s", strings.Join(missingEnvs, ", "))
 	}
 
 	return swarm.NewSwarm(swarm.NewAzureOpenAIClient(azureApiKey, azureApiBase)), nil
@@ -30,33 +36,61 @@ func createClient() (*swarm.Swarm, error) {
 func main() {
 	client, err := createClient()
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Printf("Failed to create client: %v\n", err)
+		os.Exit(1)
 	}
 
-	englishAgent := swarm.NewAgent("English Agent").WithInstructions("You only speak English.")
-	spanishAgent := swarm.NewAgent("Spanish Agent").WithInstructions("You only speak Spanish.")
+	// Create agents with clear instructions
+	englishAgent := swarm.NewAgent("English Agent").WithInstructions(`
+		You are an English-speaking assistant. If a user speaks Spanish, immediately use the transferToSpanishAgent function.
+		Do not attempt to translate or respond in Spanish yourself.
+	`)
 
+	spanishAgent := swarm.NewAgent("Spanish Agent").WithInstructions(`
+		Eres un asistente que habla español. Responde a todas las preguntas en español.
+		Si un usuario habla en inglés, continúa respondiendo en español pero adapta tu respuesta
+		para ser lo más útil posible.
+	`)
+
+	// Create handoff function with clear description
 	transferToSpanishAgent := swarm.NewAgentFunction(
 		"transferToSpanishAgent",
-		"Transfer spanish speaking users immediately.",
+		"Transfer the conversation to a Spanish-speaking agent when the user communicates in Spanish.",
 		func(args map[string]interface{}) (interface{}, error) {
-			return spanishAgent, nil
+			return &swarm.Result{
+				Value: "Transferring to Spanish-speaking agent...",
+				Agent: spanishAgent,
+			}, nil
 		},
 		[]swarm.Parameter{},
 	)
 	englishAgent.AddFunction(transferToSpanishAgent)
 
+	// Initial message from user
 	messages := []map[string]interface{}{
 		{
 			"role":    "user",
 			"content": "Hola. ¿Como estás?",
 		},
 	}
-	response, err := client.Run(context.TODO(), englishAgent, messages, nil, "gpt-4o", false, true, 10, true)
+
+	// Run the conversation with proper error handling
+	ctx := context.Background()
+	response, err := client.Run(ctx, englishAgent, messages, nil, "gpt-4o", false, true, 10, true)
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Printf("Error during conversation: %v\n", err)
+		os.Exit(1)
 	}
-	fmt.Println(response.Messages[len(response.Messages)-1]["content"])
+
+	// Print conversation history with proper formatting
+	fmt.Println("\nConversation:")
+	fmt.Println("-------------")
+	for _, msg := range response.Messages {
+		sender := msg["role"].(string)
+		if msg["sender"] != nil {
+			sender = msg["sender"].(string)
+		}
+		content := msg["content"].(string)
+		fmt.Printf("%s: %s\n", sender, content)
+	}
 }

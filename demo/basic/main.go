@@ -23,7 +23,7 @@ func main() {
 			}
 			return fmt.Sprintf("The weather in %s is sunny", location), nil
 		},
-		[]swarm.Parameter{{Name: "location", Type: reflect.TypeOf("string")}},
+		[]swarm.Parameter{{Name: "location", Type: reflect.TypeOf("string"), Required: true}},
 	)
 
 	// Add function to agent

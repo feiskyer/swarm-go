@@ -1,26 +1,39 @@
+// Package swarm provides functionality for orchestrating interactions between agents and OpenAI's language models.
 package swarm
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/openai/openai-go"
 )
 
+var (
+	// ErrEmptyMessages indicates that the messages array is empty
+	ErrEmptyMessages = errors.New("messages cannot be empty")
+	// ErrInvalidToolCall indicates an invalid tool call
+	ErrInvalidToolCall = errors.New("invalid tool call")
+)
+
+// ContextVariablesName is the name of the key used to store context variables.
 const ContextVariablesName = "context_variables"
 
-// Swarm orchestrates interactions between agents and OpenAI
+// Swarm orchestrates interactions between agents and OpenAI.
 type Swarm struct {
-	client OpenAIClient
+	Client OpenAIClient
 }
 
-// NewSwarm creates a new Swarm instance
+// NewSwarm creates a new Swarm instance with the provided OpenAI client.
 func NewSwarm(client OpenAIClient) *Swarm {
-	return &Swarm{client: client}
+	if client == nil {
+		panic("OpenAI client cannot be nil")
+	}
+	return &Swarm{Client: client}
 }
 
-// getChatCompletion handles the chat completion request to OpenAI
+// getChatCompletion handles the chat completion request to OpenAI.
 func (s *Swarm) getChatCompletion(
 	ctx context.Context,
 	agent *Agent,
@@ -29,22 +42,17 @@ func (s *Swarm) getChatCompletion(
 	modelOverride string,
 	debug bool,
 ) (*openai.ChatCompletion, error) {
-	// Create default context variables if nil
+	if agent == nil {
+		return nil, errors.New("agent cannot be nil")
+	}
+
 	if contextVariables == nil {
 		contextVariables = make(map[string]interface{})
 	}
 
-	// Handle instructions with context variables
-	var instructions string
-	switch i := agent.Instructions.(type) {
-	case string:
-		instructions = i
-	case func(map[string]interface{}) string:
-		instructions = i(contextVariables)
-	case func() string:
-		instructions = i()
-	default:
-		return nil, fmt.Errorf("invalid instructions type")
+	instructions, err := s.getInstructions(agent, contextVariables)
+	if err != nil {
+		return nil, err
 	}
 
 	// Prepare messages
@@ -58,7 +66,6 @@ func (s *Swarm) getChatCompletion(
 		Messages: openai.F(messages),
 		Model:    openai.F(modelOverride),
 	}
-
 	if len(tools) > 0 {
 		params.Tools = openai.F(tools)
 		if agent.ToolChoice != nil {
@@ -66,10 +73,27 @@ func (s *Swarm) getChatCompletion(
 		}
 	}
 
-	paramsJSON, _ := json.Marshal(params)
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal params: %w", err)
+	}
 	DebugPrint(debug, "Getting chat completion for:", string(paramsJSON))
 
-	return s.client.CreateChatCompletion(ctx, params)
+	return s.Client.CreateChatCompletion(ctx, params)
+}
+
+// getInstructions safely extracts instructions from the agent based on its type.
+func (s *Swarm) getInstructions(agent *Agent, contextVariables map[string]interface{}) (string, error) {
+	switch i := agent.Instructions.(type) {
+	case string:
+		return i, nil
+	case func(map[string]interface{}) string:
+		return i(contextVariables), nil
+	case func() string:
+		return i(), nil
+	default:
+		return "", ErrInvalidInstruction
+	}
 }
 
 func prepareTools(agent *Agent) []openai.ChatCompletionToolParam {
@@ -153,6 +177,10 @@ func prepareMessages(instructions string, history []map[string]interface{}) []op
 
 // handleFunctionResult processes the result from an agent function
 func (s *Swarm) handleFunctionResult(result interface{}, debug bool) (*Result, error) {
+	if result == nil {
+		return &Result{}, nil
+	}
+
 	switch v := result.(type) {
 	case *Result:
 		return v, nil
@@ -179,41 +207,63 @@ func (s *Swarm) handleToolCalls(
 	contextVariables map[string]interface{},
 	debug bool,
 ) (*Response, error) {
+	if len(toolCalls) == 0 {
+		return nil, fmt.Errorf("no tool calls provided")
+	}
+
+	if functions == nil {
+		return nil, fmt.Errorf("functions cannot be nil")
+	}
+
 	// Create default context variables if nil
 	if contextVariables == nil {
 		contextVariables = make(map[string]interface{})
 	}
 
-	functionMap := make(map[string]AgentFunction)
+	functionMap := make(map[string]AgentFunction, len(functions))
 	for _, f := range functions {
-		functionMap[f.Name()] = f
+		if f != nil {
+			functionMap[f.Name()] = f
+		}
 	}
 
 	response := &Response{
-		Messages:         make([]map[string]interface{}, 0),
-		ContextVariables: make(map[string]interface{}),
+		Messages:         make([]map[string]interface{}, 0, len(toolCalls)),
+		ContextVariables: make(map[string]interface{}, len(contextVariables)),
+	}
+
+	// Copy initial context variables
+	for k, v := range contextVariables {
+		response.ContextVariables[k] = v
 	}
 
 	for _, toolCall := range toolCalls {
 		name := toolCall.Function.Name
 		fn, exists := functionMap[name]
 		if !exists {
-			DebugPrint(debug, fmt.Sprintf("Tool %s not found in function map.", name))
+			errMsg := fmt.Sprintf("Tool %q not found in function map", name)
+			DebugPrint(debug, errMsg)
 			response.Messages = append(response.Messages, map[string]interface{}{
 				"role":         "tool",
 				"tool_call_id": toolCall.ID,
 				"tool_name":    name,
-				"content":      fmt.Sprintf("Error: Tool %s not found.", name),
+				"content":      fmt.Sprintf("Error: %s", errMsg),
 			})
 			continue
 		}
 
 		var args map[string]interface{}
 		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-			return nil, fmt.Errorf("failed to parse tool arguments: %v", err)
+			errMsg := fmt.Sprintf("Failed to parse arguments for tool %q: %v", name, err)
+			DebugPrint(debug, errMsg)
+			response.Messages = append(response.Messages, map[string]interface{}{
+				"role":         "tool",
+				"tool_call_id": toolCall.ID,
+				"tool_name":    name,
+				"content":      fmt.Sprintf("Error: %s", errMsg),
+			})
+			continue
 		}
-
-		DebugPrint(debug, fmt.Sprintf("Processing tool call: %s with arguments %v", name, args))
 
 		// Add context variables to args
 		args[ContextVariablesName] = contextVariables
@@ -221,13 +271,28 @@ func (s *Swarm) handleToolCalls(
 		// Execute function
 		rawResult, err := fn.Call(args)
 		if err != nil {
-			return nil, fmt.Errorf("function execution failed: %v", err)
+			errMsg := fmt.Sprintf("Function %q execution failed: %v", name, err)
+			DebugPrint(debug, errMsg)
+			response.Messages = append(response.Messages, map[string]interface{}{
+				"role":         "tool",
+				"tool_call_id": toolCall.ID,
+				"tool_name":    name,
+				"content":      fmt.Sprintf("Error: %s", errMsg),
+			})
+			continue
 		}
-		DebugPrint(debug, fmt.Sprintf("Tool call result: %q", rawResult))
 
 		result, err := s.handleFunctionResult(rawResult, debug)
 		if err != nil {
-			return nil, err
+			errMsg := fmt.Sprintf("Failed to handle result for tool %q: %v", name, err)
+			DebugPrint(debug, errMsg)
+			response.Messages = append(response.Messages, map[string]interface{}{
+				"role":         "tool",
+				"tool_call_id": toolCall.ID,
+				"tool_name":    name,
+				"content":      fmt.Sprintf("Error: %s", errMsg),
+			})
+			continue
 		}
 
 		// Update context variables from result
@@ -236,12 +301,25 @@ func (s *Swarm) handleToolCalls(
 			response.ContextVariables[k] = v
 		}
 
-		response.Messages = append(response.Messages, map[string]interface{}{
+		// Update agent if transferred
+		if result.Agent != nil {
+			response.Agent = result.Agent
+		}
+
+		// Create tool response message
+		message := map[string]interface{}{
 			"role":         "tool",
 			"tool_call_id": toolCall.ID,
 			"tool_name":    name,
 			"content":      result.Value,
-		})
+		}
+
+		// Add agent name if agent transfer occurred
+		if result.Agent != nil {
+			message["agent"] = result.Agent.Name
+		}
+
+		response.Messages = append(response.Messages, message)
 	}
 
 	return response, nil
@@ -258,6 +336,14 @@ func (s *Swarm) RunAndStream(
 	maxTurns int,
 	executeTools bool,
 ) (<-chan map[string]interface{}, error) {
+	if len(messages) == 0 {
+		return nil, ErrEmptyMessages
+	}
+
+	if agent == nil {
+		return nil, errors.New("agent cannot be nil")
+	}
+
 	if contextVariables == nil {
 		contextVariables = make(map[string]interface{})
 	}
@@ -275,7 +361,13 @@ func (s *Swarm) RunAndStream(
 		defer close(resultChan)
 
 		for len(history)-initLen < maxTurns {
-			messages := prepareMessages(activeAgent.Instructions.(string), history)
+			instructions, err := s.getInstructions(activeAgent, contextVariables)
+			if err != nil {
+				DebugPrint(debug, "Failed to get instructions:", err)
+				return
+			}
+
+			messages := prepareMessages(instructions, history)
 			params := openai.ChatCompletionNewParams{
 				Messages: openai.F(messages),
 				Model:    openai.F(modelOverride),
@@ -286,7 +378,11 @@ func (s *Swarm) RunAndStream(
 					params.ToolChoice = openai.F(*agent.ToolChoice)
 				}
 			}
-			stream := s.client.CreateChatCompletionStream(ctx, params)
+			stream, err := s.Client.CreateChatCompletionStream(ctx, params)
+			if err != nil {
+				DebugPrint(debug, "Failed to create chat completion stream:", err)
+				return
+			}
 
 			resultChan <- map[string]interface{}{"delim": "start"}
 			acc := openai.ChatCompletionAccumulator{}
@@ -324,13 +420,17 @@ func (s *Swarm) RunAndStream(
 			}
 
 			// Process accumulated response
+			if len(acc.Choices) == 0 {
+				DebugPrint(debug, "No choices in the response.")
+				return
+			}
+
 			message := map[string]interface{}{
-				"content":    "",
-				"sender":     agent.Name,
+				"content":    acc.Choices[0].Message.Content,
+				"sender":     activeAgent.Name,
 				"role":       "assistant",
 				"tool_calls": make([]map[string]interface{}, 0),
 			}
-			message["content"] = acc.Choices[0].Message.Content
 			if len(acc.Choices[0].Message.ToolCalls) > 0 {
 				message["tool_calls"] = acc.Choices[0].Message.ToolCalls
 			}
@@ -418,10 +518,12 @@ func (s *Swarm) Run(
 		}
 
 		message := map[string]interface{}{
-			"content":    completion.Choices[0].Message.Content,
-			"sender":     activeAgent.Name,
-			"role":       "assistant",
-			"tool_calls": completion.Choices[0].Message.ToolCalls,
+			"content": completion.Choices[0].Message.Content,
+			"sender":  activeAgent.Name,
+			"role":    "assistant",
+		}
+		if len(completion.Choices[0].Message.ToolCalls) > 0 {
+			message["tool_calls"] = completion.Choices[0].Message.ToolCalls
 		}
 
 		DebugPrint(debug, "Received completion:", message)
@@ -432,6 +534,7 @@ func (s *Swarm) Run(
 			break
 		}
 
+		// Handle tool calls
 		response, err := s.handleToolCalls(completion.Choices[0].Message.ToolCalls, activeAgent.Functions, contextVariables, debug)
 		if err != nil {
 			return nil, err

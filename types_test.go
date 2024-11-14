@@ -12,8 +12,8 @@ func TestNewAgent(t *testing.T) {
 		t.Errorf("Expected agent name to be TestAgent, got %s", agent.Name)
 	}
 
-	if agent.Model != "gpt-4o" {
-		t.Errorf("Expected default model to be gpt-4o, got %s", agent.Model)
+	if agent.Model != "gpt-4" {
+		t.Errorf("Expected default model to be gpt-4, got %s", agent.Model)
 	}
 
 	if agent.Instructions != "You are a helpful agent." {

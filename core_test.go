@@ -29,7 +29,7 @@ func (m MockToolCall) ToOpenAI() openai.ChatCompletionMessageToolCall {
 
 func TestNewSwarm(t *testing.T) {
 	swarm := NewSwarm(NewMockOpenAIClient())
-	if swarm.client == nil {
+	if swarm.Client == nil {
 		t.Error("Expected client to be initialized")
 	}
 }
@@ -69,7 +69,7 @@ func TestHandleFunctionResult(t *testing.T) {
 			name:     "nil result",
 			input:    nil,
 			expected: "",
-			wantErr:  true,
+			wantErr:  false,
 		},
 	}
 
@@ -96,13 +96,14 @@ func TestHandleFunctionResult(t *testing.T) {
 func TestHandleToolCalls(t *testing.T) {
 	swarm := NewSwarm(NewMockOpenAIClient())
 
+	// Create test functions with proper validation
 	testFunc := NewAgentFunction(
 		"testFunc",
 		"Test function description",
 		func(args map[string]interface{}) (interface{}, error) {
 			return "test result", nil
 		},
-		[]Parameter{{Name: "name", Type: reflect.TypeOf("string")}},
+		[]Parameter{{Name: "name", Type: reflect.TypeOf(""), Description: "Test parameter", Required: true}},
 	)
 	errorFunc := NewAgentFunction(
 		"errorFunc",
@@ -110,20 +111,28 @@ func TestHandleToolCalls(t *testing.T) {
 		func(args map[string]interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("test error")
 		},
-		[]Parameter{{Name: "name", Type: reflect.TypeOf("string")}},
+		[]Parameter{{Name: "name", Type: reflect.TypeOf(""), Description: "Test parameter", Required: true}},
 	)
+
+	// Create and initialize agent with functions
 	agent := NewAgent("TestAgent").
 		AddFunction(testFunc).
 		AddFunction(errorFunc)
+
+	// Validate agent's functions
+	if len(agent.Functions) != 2 {
+		t.Fatalf("Expected 2 functions, got %d", len(agent.Functions))
+	}
 
 	// Create mock tool calls using our helper
 	mockCall := MockToolCall{
 		ID:   "test1",
 		Name: "testFunc",
-		Args: "{}",
+		Args: `{"name": "test"}`,
 	}
 	toolCalls := []openai.ChatCompletionMessageToolCall{mockCall.ToOpenAI()}
 
+	// Pass the agent's functions directly
 	response, err := swarm.handleToolCalls(toolCalls, agent.Functions, nil, false)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -135,49 +144,6 @@ func TestHandleToolCalls(t *testing.T) {
 
 	if response.Messages[0]["content"] != "test result" {
 		t.Errorf("Expected content 'test result', got %v", response.Messages[0]["content"])
-	}
-}
-
-func TestRunAndStream(t *testing.T) {
-	swarm := NewSwarm(NewMockOpenAIClient())
-	ctx := context.Background()
-
-	agent := NewAgent("TestAgent")
-	messages := []map[string]interface{}{
-		{
-			"role":    "user",
-			"content": "Hello",
-		},
-	}
-
-	stream, err := swarm.RunAndStream(ctx, agent, messages, nil, "", false, 1, true)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	var sawStart, sawEnd, sawContent bool
-	for chunk := range stream {
-		if delim, ok := chunk["delim"].(string); ok {
-			if delim == "start" {
-				sawStart = true
-			}
-			if delim == "end" {
-				sawEnd = true
-			}
-		}
-		if _, ok := chunk["content"].(string); ok {
-			sawContent = true
-		}
-	}
-
-	if !sawStart {
-		t.Error("Expected to see start delimiter")
-	}
-	if !sawEnd {
-		t.Error("Expected to see end delimiter")
-	}
-	if !sawContent {
-		t.Error("Expected to see content")
 	}
 }
 
@@ -193,7 +159,7 @@ func TestRun(t *testing.T) {
 		},
 	})
 
-	swarm := &Swarm{client: client}
+	swarm := &Swarm{Client: client}
 	ctx := context.Background()
 
 	agent := NewAgent("TestAgent")
@@ -224,7 +190,7 @@ func TestRun(t *testing.T) {
 
 func TestRunWithMockClient(t *testing.T) {
 	mockClient := NewMockOpenAIClient()
-	swarm := &Swarm{client: mockClient}
+	swarm := &Swarm{Client: mockClient}
 
 	// Set up mock response
 	mockClient.SetCompletionResponse(&openai.ChatCompletion{
@@ -263,9 +229,9 @@ func TestRunWithMockClient(t *testing.T) {
 	AssertEqual(t, "Test response", response.Messages[0]["content"], "Response content should match")
 }
 
-func TestRunAndStreamWithMockClient(t *testing.T) {
+func TestRunAndStream(t *testing.T) {
 	mockClient := NewMockOpenAIClient()
-	swarm := &Swarm{client: mockClient}
+	swarm := &Swarm{Client: mockClient}
 
 	// Set up mock response
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
@@ -293,7 +259,7 @@ func TestRunAndStreamWithMockClient(t *testing.T) {
 		nil,
 		"",
 		false,
-		1,
+		10,
 		true,
 	)
 
@@ -310,5 +276,254 @@ func TestRunAndStreamWithMockClient(t *testing.T) {
 
 	if !sawContent {
 		t.Error("Expected to see content 'Test'")
+	}
+}
+
+func TestRunAndStreamWithEmptyMessages(t *testing.T) {
+	mockClient := NewMockOpenAIClient()
+	swarm := &Swarm{Client: mockClient}
+
+	agent := NewAgent("TestAgent")
+	messages := []map[string]interface{}{}
+
+	_, err := swarm.RunAndStream(
+		context.Background(),
+		agent,
+		messages,
+		nil,
+		"",
+		false,
+		10,
+		true,
+	)
+
+	if err == nil {
+		t.Error("Expected error for empty messages but got none")
+	}
+}
+
+func TestRunAndStreamWithToolCalls(t *testing.T) {
+	mockClient := NewMockOpenAIClient()
+	swarm := &Swarm{Client: mockClient}
+
+	// Set up mock response with tool call
+	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{
+				Delta: openai.ChatCompletionChunkChoicesDelta{
+					Content: "Test",
+				},
+			},
+		},
+	})
+	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{
+				Delta: openai.ChatCompletionChunkChoicesDelta{
+					FunctionCall: openai.ChatCompletionChunkChoicesDeltaFunctionCall{
+						Name:      "testFunc",
+						Arguments: "{}",
+					},
+				},
+			},
+		},
+	})
+
+	agent := NewAgent("TestAgent")
+	messages := []map[string]interface{}{
+		{
+			"role":    "user",
+			"content": "Hello",
+		},
+	}
+
+	stream, err := swarm.RunAndStream(
+		context.Background(),
+		agent,
+		messages,
+		nil,
+		"",
+		false,
+		10,
+		true,
+	)
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	var sawContent bool
+	var sawToolCall bool
+	for chunk := range stream {
+		if content, ok := chunk["content"].(string); ok && content == "Test" {
+			sawContent = true
+		}
+		if toolCalls, ok := chunk["tool_calls"].([]map[string]interface{}); ok && len(toolCalls) > 0 {
+			sawToolCall = true
+		}
+	}
+
+	if !sawContent {
+		t.Error("Expected to see content 'Test'")
+	}
+
+	if !sawToolCall {
+		t.Error("Expected to see tool call")
+	}
+}
+
+func TestRunAndStreamWithAgentTransfer(t *testing.T) {
+	mockClient := NewMockOpenAIClient()
+	swarm := NewSwarm(mockClient)
+	agent1 := NewAgent("Agent1")
+	agent2 := NewAgent("Agent2")
+
+	transferFunc := NewAgentFunction(
+		"transfer",
+		"Transfer to Agent2",
+		func(args map[string]interface{}) (interface{}, error) {
+			return &Result{
+				Value: "Transferring to Agent2...",
+				Agent: agent2,
+			}, nil
+		},
+		[]Parameter{},
+	)
+	agent1.AddFunction(transferFunc)
+
+	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{
+				Delta: openai.ChatCompletionChunkChoicesDelta{
+					Content: "Test",
+				},
+			},
+		},
+	})
+	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{
+				Delta: openai.ChatCompletionChunkChoicesDelta{
+					FunctionCall: openai.ChatCompletionChunkChoicesDeltaFunctionCall{
+						Name:      "transfer",
+						Arguments: "{}",
+					},
+				},
+			},
+		},
+	})
+
+	messages := []map[string]interface{}{
+		{"role": "user", "content": "Hello"},
+	}
+
+	ch, err := swarm.RunAndStream(context.Background(), agent1, messages, nil, "", false, 3, true)
+	if err != nil {
+		t.Fatalf("RunAndStream failed: %v", err)
+	}
+
+	var sawTransfer bool
+	for msg := range ch {
+		if agent, ok := msg["sender"]; ok && agent == agent2.Name {
+			sawTransfer = true
+			break
+		}
+	}
+
+	if !sawTransfer {
+		t.Error("Expected to see agent transfer, but didn't")
+	}
+}
+
+func TestToolPreparationWithContextVariables(t *testing.T) {
+	agent := NewAgent("TestAgent")
+	testFunc := NewAgentFunction(
+		"testFunc",
+		"Test function",
+		func(args map[string]interface{}) (interface{}, error) {
+			return "test", nil
+		},
+		[]Parameter{
+			{Name: "context_variables", Type: reflect.TypeOf(map[string]interface{}{}), Description: "Context variables", Required: true},
+			{Name: "param1", Type: reflect.TypeOf(""), Description: "Test parameter", Required: true},
+		},
+	)
+	agent.Functions = append(agent.Functions, testFunc)
+	tools := prepareTools(agent)
+
+	// Check that context_variables is not in the tool parameters
+	for _, tool := range tools {
+		params := tool.Function.Value.Parameters.Value
+		if properties, ok := params["properties"].(map[string]interface{}); ok {
+			if _, exists := properties["context_variables"]; exists {
+				t.Error("context_variables should not be present in tool parameters")
+			}
+		}
+	}
+}
+
+func TestMessageAccumulation(t *testing.T) {
+	mockClient := NewMockOpenAIClient()
+	swarm := NewSwarm(mockClient)
+
+	// Add test chunks to mock client
+	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{
+				Delta: openai.ChatCompletionChunkChoicesDelta{
+					Content: "Test content",
+				},
+			},
+		},
+	})
+	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{
+				Delta: openai.ChatCompletionChunkChoicesDelta{
+					FunctionCall: openai.ChatCompletionChunkChoicesDeltaFunctionCall{
+						Name:      "testFunc",
+						Arguments: "{}",
+					},
+				},
+			},
+		},
+	})
+
+	agent := NewAgent("TestAgent")
+	messages := []map[string]interface{}{
+		{"role": "user", "content": "Hello"},
+	}
+
+	ch, err := swarm.RunAndStream(context.Background(), agent, messages, nil, "", false, 1, true)
+	if err != nil {
+		t.Fatalf("RunAndStream failed: %v", err)
+	}
+
+	var (
+		sawContent  bool
+		sawToolCall bool
+		sawEnd      bool
+	)
+
+	for msg := range ch {
+		if content, ok := msg["content"]; ok && content != nil {
+			sawContent = true
+		}
+		if toolCalls, ok := msg["tool_calls"]; ok && toolCalls != nil {
+			sawToolCall = true
+		}
+		if delim, ok := msg["delim"]; ok && delim == "end" {
+			sawEnd = true
+		}
+	}
+
+	if !sawContent {
+		t.Error("Expected to see content message")
+	}
+	if !sawToolCall {
+		t.Error("Expected to see tool call message")
+	}
+	if !sawEnd {
+		t.Error("Expected to see end delimiter")
 	}
 }

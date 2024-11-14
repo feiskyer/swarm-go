@@ -1,9 +1,8 @@
 package swarm
 
 import (
-	"bytes"
 	"context"
-	"fmt"
+	"encoding/json"
 	"io"
 	"net/http"
 
@@ -47,38 +46,78 @@ func (m *MockOpenAIClient) CreateChatCompletion(ctx context.Context, params open
 	return m.CompletionResponse, nil
 }
 
-func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, params openai.ChatCompletionNewParams) *ssestream.Stream[openai.ChatCompletionChunk] {
+func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, params openai.ChatCompletionNewParams) (*ssestream.Stream[openai.ChatCompletionChunk], error) {
 	if m.Error != nil {
-		return nil
+		return nil, m.Error
 	}
-	var buffer bytes.Buffer
-	for _, chunk := range m.StreamResponse.chunks {
-		buffer.WriteString(fmt.Sprintf("data: %+v\n\n", chunk))
-	}
-	httpRes := &http.Response{Body: io.NopCloser(&buffer)}
-	return ssestream.NewStream[openai.ChatCompletionChunk](ssestream.NewDecoder(httpRes), nil)
+
+	// Return a new stream that wraps our mock stream
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		for _, chunk := range m.StreamResponse.chunks {
+			chunkData := map[string]interface{}{
+				"id":      "mock",
+				"object":  "chat.completion.chunk",
+				"created": 0,
+				"model":   "mock",
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"content": chunk.Choices[0].Delta.Content,
+							"role":    "assistant",
+						},
+						"finish_reason": nil,
+					},
+				},
+			}
+
+			// If the chunk has a function call, convert it to a tool call
+			if fc := chunk.Choices[0].Delta.FunctionCall; fc.Name != "" || fc.Arguments != "" {
+				chunkData["choices"].([]map[string]interface{})[0]["delta"] = map[string]interface{}{
+					"tool_calls": []map[string]interface{}{
+						{
+							"index": 0,
+							"id":    "call_1",
+							"type":  "function",
+							"function": map[string]interface{}{
+								"name":      fc.Name,
+								"arguments": fc.Arguments,
+							},
+						},
+					},
+				}
+			}
+
+			chunkJSON, _ := json.Marshal(chunkData)
+			pw.Write([]byte("data: "))
+			pw.Write(chunkJSON)
+			pw.Write([]byte("\n\n"))
+		}
+		// Send the final chunk with finish_reason
+		finalChunk, _ := json.Marshal(map[string]interface{}{
+			"id":      "mock",
+			"object":  "chat.completion.chunk",
+			"created": 0,
+			"model":   "mock",
+			"choices": []map[string]interface{}{
+				{
+					"index":         0,
+					"delta":         map[string]interface{}{},
+					"finish_reason": "stop",
+				},
+			},
+		})
+		pw.Write([]byte("data: "))
+		pw.Write(finalChunk)
+		pw.Write([]byte("\n\n"))
+	}()
+
+	httpRes := &http.Response{Body: pr}
+	return ssestream.NewStream[openai.ChatCompletionChunk](ssestream.NewDecoder(httpRes), nil), nil
 }
 
-// Next implements ChatCompletionStream interface
-func (m *MockStream) Next() bool {
-	m.current++
-	return m.current < len(m.chunks)
-}
-
-// Current implements ChatCompletionStream interface
-func (m *MockStream) Current() *openai.ChatCompletionChunk {
-	if m.current >= len(m.chunks) {
-		return nil
-	}
-	return m.chunks[m.current]
-}
-
-// Err implements ChatCompletionStream interface
-func (m *MockStream) Err() error {
-	return m.err
-}
-
-// Helper methods for testing
 func (m *MockOpenAIClient) SetCompletionResponse(response *openai.ChatCompletion) {
 	m.CompletionResponse = response
 }
@@ -91,7 +130,29 @@ func (m *MockOpenAIClient) SetError(err error) {
 	m.Error = err
 }
 
-// Add these methods to fully implement ssestream.Stream
 func (m *MockStream) IsClosed() bool {
 	return m.closed
+}
+
+// Next implements ChatCompletionStream interface
+func (m *MockStream) Next() bool {
+	if m.current >= len(m.chunks) {
+		return false
+	}
+	return true
+}
+
+// Current implements ChatCompletionStream interface
+func (m *MockStream) Current() *openai.ChatCompletionChunk {
+	if m.current >= len(m.chunks) {
+		return nil
+	}
+	chunk := m.chunks[m.current]
+	m.current++
+	return chunk
+}
+
+// Err implements ChatCompletionStream interface
+func (m *MockStream) Err() error {
+	return m.err
 }
