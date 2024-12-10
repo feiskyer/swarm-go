@@ -2,47 +2,88 @@ package swarm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// WorkflowStep represents a single step in a workflow
-type WorkflowStep struct {
-	Name         string                 `yaml:"name" json:"name"`
-	Instructions string                 `yaml:"instructions" json:"instructions"`
-	Model        string                 `yaml:"model" json:"model"`
-	Inputs       map[string]interface{} `yaml:"inputs" json:"inputs"`
-
-	Functions []AgentFunction `yaml:"-" json:"-"`
-	Agent     *Agent          `yaml:"-" json:"-"`
-}
-
 // Workflow represents a sequence of steps to be executed
+// Workflow represents a workflow configuration.
+// It contains the following fields:
 type Workflow struct {
-	Name  string         `yaml:"name" json:"name"`
+	// Name is the name of the workflow.
+	Name string `yaml:"name" json:"name"`
+	// Model specifies the model used in the workflow.
+	Model string `yaml:"model" json:"model"`
+	// MaxTurns defines the maximum number of turns allowed in the workflow.
+	MaxTurns int `yaml:"max_turns" json:"max_turns"`
+	// System represents the system prompt for the workflow.
+	System string `yaml:"system" json:"system"`
+	// Steps is a list of steps involved in the workflow.
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`
 }
 
-// StepResult represents the result of a workflow step execution
-type StepResult struct {
-	StepName string                   `json:"step_name"`
-	Messages []map[string]interface{} `json:"messages"`
-	Outputs  map[string]interface{}   `json:"outputs"`
-	Error    error                    `json:"error,omitempty"`
+// WorkflowStep represents a single step in a workflow.
+type WorkflowStep struct {
+	// Name is the name of the workflow step.
+	Name string `yaml:"name" json:"name"`
+	// Instructions are the instructions for the workflow step.
+	Instructions string `yaml:"instructions" json:"instructions"`
+	// Inputs are the inputs required for the workflow step.
+	Inputs map[string]interface{} `yaml:"inputs" json:"inputs"`
+
+	// Agent is the agent responsible for executing the workflow step.
+	Agent *Agent `yaml:"-" json:"-"`
+	// Functions are the functions that the agent can perform in this workflow step.
+	Functions []AgentFunction `yaml:"-" json:"-"`
 }
 
-// WorkflowResult represents the result of a workflow execution
-type WorkflowResult struct {
-	Name    string       `json:"name"`
-	Results []StepResult `json:"results"`
+// Initialize initializes the workflow by setting up agents and their functions
+func (w *Workflow) Initialize() {
+	if w.MaxTurns == 0 {
+		w.MaxTurns = 30
+	}
+
+	// Initialize Agent for each step.
+	for i := range w.Steps {
+		step := &w.Steps[i]
+		if step.Agent == nil {
+			step.Agent = NewAgent(step.Name)
+		}
+		if i < len(w.Steps)-1 {
+			step.Agent.WithInstructions(fmt.Sprintf("%s\n\nHandoff to the next step after you finish your task.", step.Instructions))
+		} else {
+			step.Agent.WithInstructions(step.Instructions)
+		}
+		for _, f := range step.Functions {
+			step.Agent.AddFunction(f)
+		}
+	}
+
+	// Add handoff function for each agent (except the last one).
+	for i := range w.Steps {
+		step := &w.Steps[i]
+
+		if i < len(w.Steps)-1 {
+			nextStep := &w.Steps[i+1]
+			handoffFunc := NewAgentFunction(
+				fmt.Sprintf("handoffTo%s", nextStep.Name),
+				fmt.Sprintf("Handoff to %s step", nextStep.Name),
+				func(args map[string]interface{}) (interface{}, error) {
+					return &Result{
+						Value: fmt.Sprintf("Handoff to %s step...", nextStep.Name),
+						Agent: nextStep.Agent,
+					}, nil
+				},
+				[]Parameter{},
+			)
+			step.Agent.AddFunction(handoffFunc)
+		}
+	}
 }
 
-// LoadFromYAML loads a workflow from a YAML file
+// LoadWorkflow loads a workflow from a YAML file
 func LoadWorkflow(path string) (*Workflow, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -58,27 +99,8 @@ func LoadWorkflow(path string) (*Workflow, error) {
 	return &workflow, nil
 }
 
-func (w *Workflow) Initialize() {
-	// Initialize agents for each step
-	for i := range w.Steps {
-		step := &w.Steps[i]
-		if step.Agent == nil {
-			step.Agent = NewAgent(step.Name)
-		}
-		if step.Instructions != "" {
-			step.Agent.WithInstructions(step.Instructions)
-		}
-		if step.Model != "" {
-			step.Agent.WithModel(step.Model)
-		}
-		if len(step.Functions) > 0 {
-			step.Agent.Functions = step.Functions
-		}
-	}
-}
-
-// SaveToYAML saves the workflow to a YAML file
-func (w *Workflow) SaveToYAML(path string) error {
+// Save saves the workflow to a YAML file
+func (w *Workflow) Save(path string) error {
 	data, err := yaml.Marshal(w)
 	if err != nil {
 		return fmt.Errorf("failed to marshal workflow: %w", err)
@@ -92,87 +114,35 @@ func (w *Workflow) SaveToYAML(path string) error {
 }
 
 // Run executes the workflow steps sequentially
-func (w *Workflow) Run(ctx context.Context, client *Swarm) (*WorkflowResult, error) {
-	result := &WorkflowResult{
-		Name:    w.Name,
-		Results: make([]StepResult, 0, len(w.Steps)),
-	}
-
+func (w *Workflow) Run(ctx context.Context, client *Swarm) (string, []map[string]interface{}, error) {
 	// Context variables to pass between steps
 	contextVars := make(map[string]interface{})
 
-	for _, step := range w.Steps {
-		// Merge step inputs with context variables
-		for k, v := range step.Inputs {
-			contextVars[k] = v
-		}
+	// Start with the first step's agent
+	activeAgent := w.Steps[0].Agent
 
-		// Prepare messages for the step
-		messages := []map[string]interface{}{
-			{
-				"role":    "system",
-				"content": "You are executing as part of a workflow. Process the input and generate appropriate output.",
-			},
-			{
-				"role":    "user",
-				"content": fmt.Sprintf("Step: %s\nContext: %v", step.Name, contextVars),
-			},
-		}
-
-		// Execute the step
-		response, err := client.Run(ctx, step.Agent, messages, contextVars, step.Model, false, true, 10, true)
-		stepResult := StepResult{
-			StepName: step.Name,
-			Outputs:  make(map[string]interface{}),
-		}
-		if err != nil {
-			stepResult.Error = err
-			result.Results = append(result.Results, stepResult)
-			return result, fmt.Errorf("failed to execute step %s: %w", step.Name, err)
-		}
-		stepResult.Messages = response.Messages
-
-		// Extract outputs from the response messages
-		for _, msg := range response.Messages {
-			// Try to parse content as JSON first
-			if content, ok := msg["content"].(string); ok && content != "" {
-				if strings.Contains(content, "```json") {
-					re := regexp.MustCompile("(?s)```json\\s*(.*?)\\s*```")
-					if matches := re.FindStringSubmatch(content); len(matches) > 1 {
-						content = matches[1]
-					}
-				}
-				var outputs map[string]interface{}
-				if err := json.Unmarshal([]byte(content), &outputs); err == nil {
-					stepResult.Outputs = outputs
-					// Update context variables with step outputs
-					for k, v := range outputs {
-						contextVars[k] = v
-					}
-					break
-				} else {
-					stepResult.Outputs["content"] = content
-				}
-			}
-
-			// Check for function call results
-			if role, ok := msg["role"].(string); ok && role == "function" {
-				if content, ok := msg["content"].(string); ok {
-					var outputs map[string]interface{}
-					if err := json.Unmarshal([]byte(content), &outputs); err == nil {
-						stepResult.Outputs = outputs
-						// Update context variables with step outputs
-						for k, v := range outputs {
-							contextVars[k] = v
-						}
-						break
-					}
-				}
-			}
-		}
-
-		result.Results = append(result.Results, stepResult)
+	// Merge initial inputs
+	for k, v := range w.Steps[0].Inputs {
+		contextVars[k] = v
 	}
 
-	return result, nil
+	// Prepare messages for the inputs
+	messages := []map[string]interface{}{
+		{
+			"role":    "system",
+			"content": w.System,
+		},
+		{
+			"role":    "user",
+			"content": fmt.Sprintf("Context: %v", contextVars),
+		},
+	}
+
+	// Execute the step
+	response, err := client.Run(ctx, activeAgent, messages, contextVars, w.Model, false, true, w.MaxTurns, true)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return response.Messages[len(response.Messages)-1]["content"].(string), response.Messages, nil
 }

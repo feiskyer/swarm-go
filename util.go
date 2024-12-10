@@ -332,23 +332,10 @@ func formatArgs(args map[string]interface{}) string {
 func RunDemoLoop(startingAgent *Agent, contextVariables map[string]interface{}, stream bool, debug bool) {
 	fmt.Println("Starting Swarm CLI 🐝")
 
-	var client *Swarm
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		azureAPIKey := os.Getenv("AZURE_OPENAI_API_KEY")
-		if azureAPIKey == "" {
-			fmt.Println("OPENAI_API_KEY or AZURE_OPENAI_API_KEY is not set")
-			return
-		}
-
-		azureAPIBase := os.Getenv("AZURE_OPENAI_API_BASE")
-		if azureAPIBase == "" {
-			fmt.Println("AZURE_OPENAI_API_BASE is not set")
-			return
-		}
-		client = NewSwarm(NewAzureOpenAIClient(azureAPIKey, azureAPIBase))
-	} else {
-		client = NewSwarm(NewOpenAIClient(apiKey))
+	client, err := NewDefaultSwarm()
+	if err != nil {
+		fmt.Printf("Error creating Swarm client: %v\n", err)
+		return
 	}
 
 	messages := make([]map[string]interface{}, 0)

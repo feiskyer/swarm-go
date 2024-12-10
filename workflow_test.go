@@ -2,7 +2,7 @@ package swarm
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -13,15 +13,16 @@ func TestWorkflow(t *testing.T) {
 	// Create a temporary workflow YAML file
 	workflowYAML := `
 name: test-workflow
+model: gpt-4o
+max_turns: 30
+system: "You are executing a workflow. Process the input and generate appropriate output."
 steps:
   - name: weather-step
     instructions: "You are a weather assistant. Return weather information in JSON format."
-    model: gpt-4o
     inputs:
       location: "Seattle"
   - name: summary-step
     instructions: "You are a summary assistant. Summarize the weather information in JSON format."
-    model: gpt-4o
 `
 	tmpfile, err := os.CreateTemp("", "workflow-*.yaml")
 	if err != nil {
@@ -54,7 +55,7 @@ steps:
 		},
 		[]Parameter{},
 	)
-	workflow.Steps[0].Functions = []AgentFunction{weatherFunc}
+	workflow.Steps[0].Functions = append(workflow.Steps[0].Functions, weatherFunc)
 
 	// Create mock client with expected responses
 	mockClient := NewMockOpenAIClient()
@@ -106,48 +107,45 @@ steps:
 	client := NewSwarm(mockClient)
 
 	// Run workflow
-	result, err := workflow.Run(context.Background(), client)
+	result, _, err := workflow.Run(context.Background(), client)
 	if err != nil {
 		t.Fatalf("Failed to run workflow: %v", err)
 	}
 
 	// Verify results
-	if len(result.Results) != 2 {
-		t.Errorf("Expected 2 results, got %d", len(result.Results))
+	var weatherResult map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &weatherResult); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v, raw result: %s", err, result)
 	}
 
-	// Verify step names
-	if result.Results[0].StepName != "weather-step" {
-		t.Errorf("Expected first step name to be weather-step, got %s", result.Results[0].StepName)
-	}
-	if result.Results[1].StepName != "summary-step" {
-		t.Errorf("Expected second step name to be summary-step, got %s", result.Results[1].StepName)
+	// Verify weather step result
+	expectedWeather := map[string]interface{}{
+		"temperature": float64(72),
+		"condition":   "sunny",
 	}
 
-	// Verify outputs
-	weatherOutput := result.Results[0].Outputs
-	fmt.Println(weatherOutput)
-	if temp, ok := weatherOutput["temperature"].(float64); !ok || temp != 72 {
-		t.Errorf("Expected temperature 72, got %v", weatherOutput["temperature"])
-	}
-	if cond, ok := weatherOutput["condition"].(string); !ok || cond != "sunny" {
-		t.Errorf("Expected condition sunny, got %v", weatherOutput["condition"])
-	}
-
-	summaryOutput := result.Results[1].Outputs
-	if summary, ok := summaryOutput["summary"].(string); !ok || summary != "The weather is warm and sunny" {
-		t.Errorf("Expected summary 'The weather is warm and sunny', got %v", summaryOutput["summary"])
+	for k, v := range expectedWeather {
+		got, ok := weatherResult[k]
+		if !ok {
+			t.Errorf("Missing expected key %s in weather result", k)
+			continue
+		}
+		if got != v {
+			t.Errorf("Expected %s=%v, got %v", k, v, got)
+		}
 	}
 }
 
 func TestWorkflowSaveLoad(t *testing.T) {
 	workflow := &Workflow{
-		Name: "test-workflow",
+		Name:     "test-workflow",
+		Model:    "gpt-4o",
+		MaxTurns: 30,
+		System:   "You are executing a workflow. Process the input and generate appropriate output.",
 		Steps: []WorkflowStep{
 			{
 				Name:         "step1",
 				Instructions: "Test instructions",
-				Model:        "gpt-4o",
 				Inputs: map[string]interface{}{
 					"key": "value",
 				},
@@ -162,7 +160,7 @@ func TestWorkflowSaveLoad(t *testing.T) {
 	}
 	defer os.Remove(tmpfile.Name())
 
-	if err := workflow.SaveToYAML(tmpfile.Name()); err != nil {
+	if err := workflow.Save(tmpfile.Name()); err != nil {
 		t.Fatalf("Failed to save workflow: %v", err)
 	}
 
@@ -184,9 +182,6 @@ func TestWorkflowSaveLoad(t *testing.T) {
 	}
 	if loaded.Steps[0].Instructions != workflow.Steps[0].Instructions {
 		t.Errorf("Expected instructions %s, got %s", workflow.Steps[0].Instructions, loaded.Steps[0].Instructions)
-	}
-	if loaded.Steps[0].Model != workflow.Steps[0].Model {
-		t.Errorf("Expected model %s, got %s", workflow.Steps[0].Model, loaded.Steps[0].Model)
 	}
 	if v, ok := loaded.Steps[0].Inputs["key"]; !ok || v != "value" {
 		t.Errorf("Expected input key=value, got %v", loaded.Steps[0].Inputs["key"])
