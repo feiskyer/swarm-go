@@ -12,7 +12,8 @@ import (
 
 // MockOpenAIClient mocks the OpenAI client for testing
 type MockOpenAIClient struct {
-	CompletionResponse *openai.ChatCompletion
+	CompletionIter     int
+	CompletionResponse []*openai.ChatCompletion
 	StreamResponse     *MockStream
 	Error              error
 }
@@ -43,7 +44,9 @@ func (m *MockOpenAIClient) CreateChatCompletion(ctx context.Context, params open
 	if m.Error != nil {
 		return nil, m.Error
 	}
-	return m.CompletionResponse, nil
+	iter := m.CompletionIter
+	m.CompletionIter++
+	return m.CompletionResponse[iter], nil
 }
 
 func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, params openai.ChatCompletionNewParams) (*ssestream.Stream[openai.ChatCompletionChunk], error) {
@@ -119,7 +122,7 @@ func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, param
 }
 
 func (m *MockOpenAIClient) SetCompletionResponse(response *openai.ChatCompletion) {
-	m.CompletionResponse = response
+	m.CompletionResponse = append(m.CompletionResponse, response)
 }
 
 func (m *MockOpenAIClient) AddStreamChunk(chunk *openai.ChatCompletionChunk) {

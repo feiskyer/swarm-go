@@ -2,7 +2,10 @@ module github.com/feiskyer/swarm-go
 
 go 1.23
 
-require github.com/openai/openai-go v0.1.0-alpha.39
+require (
+	github.com/openai/openai-go v0.1.0-alpha.39
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0 // indirect
