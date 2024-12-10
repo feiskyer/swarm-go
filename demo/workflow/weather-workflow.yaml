@@ -1,11 +1,12 @@
 name: weather-workflow
+model: gpt-4o
+max_turns: 30
+system: You are a weather assistant. Get weather information and recommendations, return in JSON format.
 steps:
     - name: get-weather
       instructions: You are a weather assistant. Get weather information for the provided location and return it in JSON format.
-      model: gpt-4o
       inputs:
         location: Seattle
     - name: analyze-weather
       instructions: You are a weather analyst. Analyze the weather information and provide recommendations in JSON format.
-      model: gpt-4o
       inputs: {}

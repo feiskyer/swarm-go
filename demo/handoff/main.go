@@ -4,37 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/feiskyer/swarm-go"
 )
 
-func createClient() (*swarm.Swarm, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey != "" {
-		return swarm.NewSwarm(swarm.NewOpenAIClient(apiKey)), nil
-	}
-
-	azureApiKey := os.Getenv("AZURE_OPENAI_API_KEY")
-	azureApiBase := os.Getenv("AZURE_OPENAI_API_BASE")
-
-	var missingEnvs []string
-	if azureApiKey == "" {
-		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_KEY")
-	}
-	if azureApiBase == "" {
-		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_BASE")
-	}
-
-	if len(missingEnvs) > 0 {
-		return nil, fmt.Errorf("required environment variables not set: %s", strings.Join(missingEnvs, ", "))
-	}
-
-	return swarm.NewSwarm(swarm.NewAzureOpenAIClient(azureApiKey, azureApiBase)), nil
-}
-
 func main() {
-	client, err := createClient()
+	client, err := swarm.NewDefaultSwarm()
 	if err != nil {
 		fmt.Printf("Failed to create client: %v\n", err)
 		os.Exit(1)

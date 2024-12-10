@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/openai/openai-go"
 )
@@ -31,6 +33,32 @@ func NewSwarm(client OpenAIClient) *Swarm {
 		panic("OpenAI client cannot be nil")
 	}
 	return &Swarm{Client: client}
+}
+
+// NewDefaultSwarm creates a new Swarm instance with the default OpenAI client inferred from the environment variables.
+// It will use OpenAI if OPENAI_API_KEY is set, otherwise it will use Azure OpenAI if AZURE_OPENAI_API_KEY and AZURE_OPENAI_API_BASE are set.
+func NewDefaultSwarm() (*Swarm, error) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey != "" {
+		return NewSwarm(NewOpenAIClient(apiKey)), nil
+	}
+
+	azureApiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	azureApiBase := os.Getenv("AZURE_OPENAI_API_BASE")
+
+	var missingEnvs []string
+	if azureApiKey == "" {
+		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_KEY")
+	}
+	if azureApiBase == "" {
+		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_BASE")
+	}
+
+	if len(missingEnvs) > 0 {
+		return nil, fmt.Errorf("required environment variables not set: %s", strings.Join(missingEnvs, ", "))
+	}
+
+	return NewSwarm(NewAzureOpenAIClient(azureApiKey, azureApiBase)), nil
 }
 
 // getChatCompletion handles the chat completion request to OpenAI.
