@@ -22,6 +22,8 @@ type Workflow struct {
 	System string `yaml:"system" json:"system"`
 	// Steps is a list of steps involved in the workflow.
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`
+	// Verbose specifies whether to print verbose logs.
+	Verbose bool `yaml:"verbose" json:"verbose"`
 }
 
 // WorkflowStep represents a single step in a workflow.
@@ -139,7 +141,7 @@ func (w *Workflow) Run(ctx context.Context, client *Swarm) (string, []map[string
 	}
 
 	// Execute the step
-	response, err := client.Run(ctx, activeAgent, messages, contextVars, w.Model, false, true, w.MaxTurns, true)
+	response, err := client.Run(ctx, activeAgent, messages, contextVars, w.Model, false, w.Verbose, w.MaxTurns, true)
 	if err != nil {
 		return "", nil, err
 	}

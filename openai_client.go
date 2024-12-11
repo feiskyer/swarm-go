@@ -32,6 +32,23 @@ func NewOpenAIClient(apiKey string) OpenAIClient {
 	}
 }
 
+// NewOpenAIClientWithBaseURL creates a new OpenAI client wrapper with a custom base URL
+func NewOpenAIClientWithBaseURL(apiKey string, baseURL string) OpenAIClient {
+	if apiKey == "" {
+		return nil
+	}
+
+	if baseURL == "" {
+		return &openAIClientWrapper{
+			client: openai.NewClient(option.WithAPIKey(apiKey)),
+		}
+	}
+
+	return &openAIClientWrapper{
+		client: openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)),
+	}
+}
+
 // NewAzureOpenAIClient creates a new OpenAI client wrapper for Azure
 func NewAzureOpenAIClient(apiKey, endpoint string) OpenAIClient {
 	if apiKey == "" || endpoint == "" {
