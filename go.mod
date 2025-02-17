@@ -3,7 +3,7 @@ module github.com/feiskyer/swarm-go
 go 1.23
 
 require (
-	github.com/openai/openai-go v0.1.0-alpha.56
+	github.com/openai/openai-go v0.1.0-alpha.59
 	gopkg.in/yaml.v3 v3.0.1
 )
 
