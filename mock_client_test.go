@@ -139,10 +139,7 @@ func (m *MockStream) IsClosed() bool {
 
 // Next implements ChatCompletionStream interface
 func (m *MockStream) Next() bool {
-	if m.current >= len(m.chunks) {
-		return false
-	}
-	return true
+	return m.current < len(m.chunks)
 }
 
 // Current implements ChatCompletionStream interface

@@ -173,10 +173,11 @@ func TestRun(t *testing.T) {
 	response, err := swarm.Run(ctx, agent, messages, nil, "", false, false, 1, true)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
+		return
 	}
 
 	if response == nil {
-		t.Error("Expected non-nil response")
+		t.Fatal("Expected non-nil response")
 	}
 
 	if len(response.Messages) == 0 {

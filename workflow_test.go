@@ -2,188 +2,116 @@ package swarm
 
 import (
 	"context"
-	"encoding/json"
-	"os"
+	"fmt"
 	"testing"
-
-	"github.com/openai/openai-go"
+	"time"
 )
 
 func TestWorkflow(t *testing.T) {
-	// Create a temporary workflow YAML file
-	workflowYAML := `
-name: test-workflow
-model: gpt-4o
-max_turns: 30
-system: "You are executing a workflow. Process the input and generate appropriate output."
-steps:
-  - name: weather-step
-    instructions: "You are a weather assistant. Return weather information in JSON format."
-    inputs:
-      location: "Seattle"
-  - name: summary-step
-    instructions: "You are a summary assistant. Summarize the weather information in JSON format."
-`
-	tmpfile, err := os.CreateTemp("", "workflow-*.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
+	workflow := NewWorkflow("test-workflow")
+	workflow.WithConfig(WorkflowConfig{
+		MaxTurns:   30,
+		Timeout:    5 * time.Minute,
+		MaxRetries: 3,
+		Verbose:    true,
+	})
 
-	if _, err := tmpfile.Write([]byte(workflowYAML)); err != nil {
-		t.Fatal(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		t.Fatal(err)
-	}
+	// Add test steps
+	startStep := NewStep(
+		"StartEventHandler",
+		EventStart,
+		func(ctx *Context, event Event) (Event, error) {
+			if event.Type() != EventStart {
+				return nil, fmt.Errorf("expected start event, got %s", event.Type())
+			}
 
-	// Load workflow from YAML
-	workflow, err := LoadWorkflow(tmpfile.Name())
-	if err != nil {
-		t.Fatalf("Failed to load workflow: %v", err)
-	}
-
-	// Add functions to steps
-	weatherFunc := NewAgentFunction(
-		"getWeather",
-		"Get weather information",
-		func(args map[string]interface{}) (interface{}, error) {
-			return map[string]interface{}{
-				"temperature": 72,
-				"condition":   "sunny",
-			}, nil
+			tasks := []Task{
+				{
+					ID:      "task1",
+					Type:    EventType("ProcessData"),
+					Payload: map[string]interface{}{"data": "test1"},
+					Timeout: time.Minute,
+				},
+				{
+					ID:      "task2",
+					Type:    EventType("ProcessData"),
+					Payload: map[string]interface{}{"data": "test2"},
+					Timeout: time.Minute,
+				},
+			}
+			return NewParallelEvent(tasks, "ProcessData")
 		},
-		[]Parameter{},
+		StepConfig{},
 	)
-	workflow.Steps[0].Functions = append(workflow.Steps[0].Functions, weatherFunc)
 
-	// Create mock client with expected responses
-	mockClient := NewMockOpenAIClient()
-
-	// First step: weather info with function call and result
-	mockClient.SetCompletionResponse(&openai.ChatCompletion{
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Message: openai.ChatCompletionMessage{
-					Role:    "assistant",
-					Content: "",
-					ToolCalls: []openai.ChatCompletionMessageToolCall{
-						{
-							Function: openai.ChatCompletionMessageToolCallFunction{
-								Name:      "getWeather",
-								Arguments: `{"location": "Seattle"}`,
-							},
-						},
-					},
-				},
-			},
+	processStep := NewStep(
+		"ProcessDataHandler",
+		EventType("ProcessData"),
+		func(ctx *Context, event Event) (Event, error) {
+			data := event.Data()
+			return NewBaseEvent(EventType("ProcessDataResult"), data), nil
 		},
-	})
-
-	// Add function result to mock client's response
-	mockClient.SetCompletionResponse(&openai.ChatCompletion{
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Message: openai.ChatCompletionMessage{
-					Role:    "assistant",
-					Content: `{"temperature": 72, "condition": "sunny"}`,
-				},
-			},
+		StepConfig{
+			MaxParallel: 2,
 		},
-	})
+	)
 
-	// Second step: summary
-	mockClient.SetCompletionResponse(&openai.ChatCompletion{
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Message: openai.ChatCompletionMessage{
-					Content: `{"summary": "The weather is warm and sunny", "recommendation": "Great day for outdoor activities"}`,
-					Role:    "assistant",
-				},
-			},
+	// Add step to handle parallel results
+	parallelResultStep := NewStep(
+		"ParallelResultHandler",
+		EventParallelResult,
+		func(ctx *Context, event Event) (Event, error) {
+			resultEvent := event.(*ParallelResultEvent)
+			// Process parallel results here
+			return NewBaseEvent(EventType("ProcessDataResult"), resultEvent.Results), nil
 		},
-	})
+		StepConfig{},
+	)
 
-	client := NewSwarm(mockClient)
+	resultStep := NewStep(
+		"ProcessDataResultHandler",
+		EventType("ProcessDataResult"),
+		func(ctx *Context, event Event) (Event, error) {
+			return NewStopEvent(map[string]interface{}{"status": "success"}), nil
+		},
+		StepConfig{},
+	)
+
+	if err := workflow.AddStep(startStep); err != nil {
+		t.Fatalf("Failed to add start step: %v", err)
+	}
+	if err := workflow.AddStep(processStep); err != nil {
+		t.Fatalf("Failed to add process step: %v", err)
+	}
+	if err := workflow.AddStep(parallelResultStep); err != nil {
+		t.Fatalf("Failed to add parallel result step: %v", err)
+	}
+	if err := workflow.AddStep(resultStep); err != nil {
+		t.Fatalf("Failed to add result step: %v", err)
+	}
 
 	// Run workflow
-	result, _, err := workflow.Run(context.Background(), client)
+	handler, err := workflow.Run(context.Background(), map[string]interface{}{
+		"input": "test",
+	})
 	if err != nil {
 		t.Fatalf("Failed to run workflow: %v", err)
 	}
 
-	// Verify results
-	var weatherResult map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &weatherResult); err != nil {
-		t.Fatalf("Failed to unmarshal result: %v, raw result: %s", err, result)
-	}
-
-	// Verify weather step result
-	expectedWeather := map[string]interface{}{
-		"temperature": float64(72),
-		"condition":   "sunny",
-	}
-
-	for k, v := range expectedWeather {
-		got, ok := weatherResult[k]
-		if !ok {
-			t.Errorf("Missing expected key %s in weather result", k)
-			continue
-		}
-		if got != v {
-			t.Errorf("Expected %s=%v, got %v", k, v, got)
-		}
-	}
-}
-
-func TestWorkflowSaveLoad(t *testing.T) {
-	workflow := &Workflow{
-		Name:     "test-workflow",
-		Model:    "gpt-4o",
-		MaxTurns: 30,
-		System:   "You are executing a workflow. Process the input and generate appropriate output.",
-		Steps: []WorkflowStep{
-			{
-				Name:         "step1",
-				Instructions: "Test instructions",
-				Inputs: map[string]interface{}{
-					"key": "value",
-				},
-			},
-		},
-	}
-
-	// Save workflow
-	tmpfile, err := os.CreateTemp("", "workflow-*.yaml")
+	// Wait for completion
+	result, err := handler.Wait()
 	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-
-	if err := workflow.Save(tmpfile.Name()); err != nil {
-		t.Fatalf("Failed to save workflow: %v", err)
+		t.Fatalf("Workflow execution failed: %v", err)
 	}
 
-	// Load workflow
-	loaded, err := LoadWorkflow(tmpfile.Name())
-	if err != nil {
-		t.Fatalf("Failed to load workflow: %v", err)
+	// Verify result
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected map result, got %T", result)
 	}
 
-	// Verify loaded workflow
-	if loaded.Name != workflow.Name {
-		t.Errorf("Expected workflow name %s, got %s", workflow.Name, loaded.Name)
-	}
-	if len(loaded.Steps) != len(workflow.Steps) {
-		t.Errorf("Expected %d steps, got %d", len(workflow.Steps), len(loaded.Steps))
-	}
-	if loaded.Steps[0].Name != workflow.Steps[0].Name {
-		t.Errorf("Expected step name %s, got %s", workflow.Steps[0].Name, loaded.Steps[0].Name)
-	}
-	if loaded.Steps[0].Instructions != workflow.Steps[0].Instructions {
-		t.Errorf("Expected instructions %s, got %s", workflow.Steps[0].Instructions, loaded.Steps[0].Instructions)
-	}
-	if v, ok := loaded.Steps[0].Inputs["key"]; !ok || v != "value" {
-		t.Errorf("Expected input key=value, got %v", loaded.Steps[0].Inputs["key"])
+	status, ok := resultMap["status"].(string)
+	if !ok || status != "success" {
+		t.Errorf("Expected status=success, got %v", status)
 	}
 }

@@ -19,27 +19,30 @@ const (
 	colorReset  = "\033[0m"
 )
 
-// StreamResponse represents a streaming response chunk
+// StreamResponse represents a streaming response chunk from an AI agent.
 type StreamResponse struct {
-	Content   string     `json:"content,omitempty"`
-	Sender    string     `json:"sender,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	Delim     string     `json:"delim,omitempty"`
-	Response  *Response  `json:"response,omitempty"`
+	Content   string     `json:"content,omitempty"`    // The text content of the response
+	Sender    string     `json:"sender,omitempty"`     // The identity of the sender
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"` // Any function calls made by the agent
+	Delim     string     `json:"delim,omitempty"`      // Delimiter for streaming chunks
+	Response  *Response  `json:"response,omitempty"`   // Complete response object if present
 }
 
-// ToolCall represents a call to a specific tool/function.
+// ToolCall represents a call to a specific tool or function by an AI agent.
+// It encapsulates the function details and its invocation parameters.
 type ToolCall struct {
-	Function Function `json:"function"`
+	Function Function `json:"function"` // The function being called
 }
 
-// Function represents a function call, including its name and arguments.
+// Function represents a function call specification, including its name and arguments.
+// This structure is used to marshal function calls between the AI and the system.
 type Function struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Name      string `json:"name"`      // Name of the function to call
+	Arguments string `json:"arguments"` // JSON-encoded arguments for the function
 }
 
-// DebugPrint prints debug information if debug is enabled
+// DebugPrint prints timestamped debug information if debugging is enabled.
+// It formats the output with ANSI color codes for better visibility.
 func DebugPrint(debug bool, args ...interface{}) {
 	if !debug {
 		return
@@ -49,7 +52,15 @@ func DebugPrint(debug bool, args ...interface{}) {
 	fmt.Printf("\033[97m[\033[90m%s\033[97m]\033[90m %s\033[0m\n", timestamp, message)
 }
 
-// FunctionToJSON converts a Go function to OpenAI function format
+// FunctionToJSON converts a Go function to OpenAI function format specification.
+// It analyzes the function's parameters and creates a JSON schema representation
+// that can be used with the OpenAI API.
+//
+// Parameters:
+//   - f: AgentFunction interface to convert
+//
+// Returns:
+//   - map[string]interface{}: JSON schema representation of the function
 func FunctionToJSON(f AgentFunction) map[string]interface{} {
 	if f == nil {
 		return nil
@@ -328,7 +339,15 @@ func formatArgs(args map[string]interface{}) string {
 	return strings.Join(pairs, ", ")
 }
 
-// RunDemoLoop starts an interactive CLI session
+// RunDemoLoop starts an interactive CLI session for testing and demonstrating
+// agent capabilities. It provides a REPL-like interface for communicating with
+// AI agents and visualizing their responses and tool calls.
+//
+// Parameters:
+//   - startingAgent: initial agent configuration
+//   - contextVariables: map of context variables for the session
+//   - stream: enable streaming mode for responses
+//   - debug: enable debug output
 func RunDemoLoop(startingAgent *Agent, contextVariables map[string]interface{}, stream bool, debug bool) {
 	fmt.Println("Starting Swarm CLI 🐝")
 

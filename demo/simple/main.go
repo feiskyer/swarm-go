@@ -31,13 +31,13 @@ func main() {
 		},
 	)
 
-	// Create a workflow
-	workflow := &swarm.Workflow{
+	// Create a simple workflow
+	workflow := &swarm.SimpleFlow{
 		Name:     "weather-workflow",
 		Model:    "gpt-4o",
 		MaxTurns: 30,
 		System:   "You are a weather assistant. Get weather information and recommendations, return in JSON format.",
-		Steps: []swarm.WorkflowStep{
+		Steps: []swarm.SimpleFlowStep{
 			{
 				Name:         "get-weather",
 				Instructions: "You are a weather assistant. Get weather information for the provided location and return it in JSON format.",
@@ -54,11 +54,6 @@ func main() {
 	}
 
 	workflow.Initialize()
-	// // Save workflow to YAML
-	// if err := workflow.SaveToYAML("weather-workflow.yaml"); err != nil {
-	// 	fmt.Printf("Failed to save workflow: %v\n", err)
-	// 	os.Exit(1)
-	// }
 
 	// Create OpenAI client
 	client, err := swarm.NewDefaultSwarm()

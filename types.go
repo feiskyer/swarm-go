@@ -41,6 +41,7 @@ type SimpleAgentFunction struct {
 	ParametersList []Parameter
 }
 
+// Call executes the function with the given arguments.
 func (f *SimpleAgentFunction) Call(args map[string]interface{}) (interface{}, error) {
 	if f.CallFn == nil {
 		return nil, fmt.Errorf("%w: CallFn is nil", ErrInvalidFunction)
@@ -48,18 +49,22 @@ func (f *SimpleAgentFunction) Call(args map[string]interface{}) (interface{}, er
 	return f.CallFn(args)
 }
 
+// Description returns the function's documentation.
 func (f *SimpleAgentFunction) Description() string {
 	return f.DescString
 }
 
+// Name returns the function's name.
 func (f *SimpleAgentFunction) Name() string {
 	return f.NameString
 }
 
+// Parameters returns the function's parameters.
 func (f *SimpleAgentFunction) Parameters() []Parameter {
 	return f.ParametersList
 }
 
+// Validate checks if the function is properly configured.
 func (f *SimpleAgentFunction) Validate() error {
 	if f.CallFn == nil {
 		return fmt.Errorf("%w: CallFn is nil", ErrInvalidFunction)
@@ -67,14 +72,6 @@ func (f *SimpleAgentFunction) Validate() error {
 	if f.NameString == "" {
 		return fmt.Errorf("%w: name is empty", ErrInvalidFunction)
 	}
-	// if f.DescString == "" {
-	// 	return fmt.Errorf("%w: description is empty", ErrInvalidFunction)
-	// }
-	// for _, p := range f.ParametersList {
-	// 	if err := p.Validate(); err != nil {
-	// 		return fmt.Errorf("parameter %q: %w", p.Name, err)
-	// 	}
-	// }
 	return nil
 }
 
@@ -91,34 +88,26 @@ func NewAgentFunction(name string, desc string, fn func(map[string]interface{}) 
 
 // Agent represents an AI agent with its configuration and capabilities.
 type Agent struct {
-	// Name identifies the agent
+	// Name is the unique identifier for the agent
 	Name string
-
-	// Model specifies the OpenAI model to use (e.g., "gpt-4")
-	Model string
-
-	// Instructions can be either a string or a function returning a string
-	// that provides the system message for the agent
+	// Instructions define the agent's behavior and role
 	Instructions interface{}
-
-	// Functions that this agent can call
+	// Functions are the tools available to this agent
 	Functions []AgentFunction
-
-	// ToolChoice specifies how the agent should use tools
-	// Can be "none", "auto", or a specific function name
-	ToolChoice *openai.ChatCompletionToolChoiceOptionUnionParam
-
-	// ParallelToolCalls indicates if multiple tools can be called in parallel
-	ParallelToolCalls bool
-
-	// MaxTokens specifies the maximum number of tokens to generate
-	MaxTokens int
-
+	// Model specifies which OpenAI model to use (e.g., "gpt-4")
+	Model string
 	// Temperature controls randomness in responses (0.0 to 2.0)
 	Temperature float32
+	// MaxTokens limits the response length
+	MaxTokens int
+	// ToolChoice specifies how the agent should use tools
+	ToolChoice *openai.ChatCompletionToolChoiceOptionUnionParam
+	// ParallelToolCalls indicates if multiple tools can be called in parallel
+	ParallelToolCalls bool
 }
 
-// Response encapsulates the complete response from an agent interaction.
+// Response encapsulates the result of an agent interaction.
+// It includes messages generated, context updates, and any agent switches.
 type Response struct {
 	// Messages contains the conversation history
 	Messages []map[string]interface{}
@@ -136,7 +125,8 @@ type Response struct {
 	Cost float64
 }
 
-// Result encapsulates the return value from an agent function.
+// Result represents the outcome of a function execution.
+// It includes both the execution result and any error that occurred.
 type Result struct {
 	// Value contains the function's string output
 	Value string

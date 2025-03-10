@@ -1,4 +1,3 @@
-// Package swarm provides functionality for orchestrating interactions between agents and OpenAI's language models.
 package swarm
 
 import (
@@ -13,21 +12,33 @@ import (
 )
 
 var (
-	// ErrEmptyMessages indicates that the messages array is empty
+	// ErrEmptyMessages indicates that the messages array is empty when making a request.
+	// This error is returned when attempting to run an agent interaction without any initial messages.
 	ErrEmptyMessages = errors.New("messages cannot be empty")
-	// ErrInvalidToolCall indicates an invalid tool call
+
+	// ErrInvalidToolCall indicates that a tool call request was malformed or invalid.
+	// This can occur when the tool call parameters don't match the function signature.
 	ErrInvalidToolCall = errors.New("invalid tool call")
 )
 
-// ContextVariablesName is the name of the key used to store context variables.
+// ContextVariablesName is the key used to store context variables in function arguments.
+// This constant is used internally to pass context between function calls.
 const ContextVariablesName = "context_variables"
 
-// Swarm orchestrates interactions between agents and OpenAI.
+// Swarm orchestrates interactions between agents and OpenAI's language models.
+// It handles message processing, tool execution, and response management.
 type Swarm struct {
+	// Client is the interface to OpenAI's API
 	Client OpenAIClient
 }
 
 // NewSwarm creates a new Swarm instance with the provided OpenAI client.
+//
+// Parameters:
+//   - client: An implementation of OpenAIClient interface for API communication
+//
+// Returns:
+//   - *Swarm: A new Swarm instance
 func NewSwarm(client OpenAIClient) *Swarm {
 	if client == nil {
 		panic("OpenAI client cannot be nil")
@@ -35,22 +46,28 @@ func NewSwarm(client OpenAIClient) *Swarm {
 	return &Swarm{Client: client}
 }
 
-// NewDefaultSwarm creates a new Swarm instance with the default OpenAI client inferred from the environment variables.
-// It will use OpenAI if OPENAI_API_KEY is set, otherwise it will use Azure OpenAI if AZURE_OPENAI_API_KEY and AZURE_OPENAI_API_BASE are set.
+// NewDefaultSwarm creates a new Swarm instance with default OpenAI client configuration.
+// It uses the OPENAI_API_KEY environment variable for authentication.
+// Returns an error if the API key is not set or if client creation fails.
 func NewDefaultSwarm() (*Swarm, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey != "" {
-		return NewSwarm(NewOpenAIClient(apiKey)), nil
+		apiBase := os.Getenv("OPENAI_API_BASE")
+		if apiBase == "" {
+			return NewSwarm(NewOpenAIClient(apiKey)), nil
+		}
+
+		return NewSwarm(NewOpenAIClientWithBaseURL(apiKey, apiBase)), nil
 	}
 
-	azureApiKey := os.Getenv("AZURE_OPENAI_API_KEY")
-	azureApiBase := os.Getenv("AZURE_OPENAI_API_BASE")
+	azureAPIKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	azureAPIBase := os.Getenv("AZURE_OPENAI_API_BASE")
 
 	var missingEnvs []string
-	if azureApiKey == "" {
+	if azureAPIKey == "" {
 		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_KEY")
 	}
-	if azureApiBase == "" {
+	if azureAPIBase == "" {
 		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_BASE")
 	}
 
@@ -58,10 +75,21 @@ func NewDefaultSwarm() (*Swarm, error) {
 		return nil, fmt.Errorf("required environment variables not set: %s", strings.Join(missingEnvs, ", "))
 	}
 
-	return NewSwarm(NewAzureOpenAIClient(azureApiKey, azureApiBase)), nil
+	return NewSwarm(NewAzureOpenAIClient(azureAPIKey, azureAPIBase)), nil
 }
 
-// getChatCompletion handles the chat completion request to OpenAI.
+// getChatCompletion sends a request to OpenAI's chat completion API and returns the response.
+// It handles message preparation, tool configuration, and response parsing.
+//
+// Parameters:
+//   - ctx: Context for the request
+//   - agent: Agent configuration including tools and instructions
+//   - history: Previous conversation messages
+//   - contextVariables: Variables to be used in the conversation
+//   - modelOverride: Optional model override (uses agent's default if empty)
+//   - debug: Enable debug logging
+//
+// Returns the chat completion response or an error if the request fails.
 func (s *Swarm) getChatCompletion(
 	ctx context.Context,
 	agent *Agent,
@@ -353,7 +381,20 @@ func (s *Swarm) handleToolCalls(
 	return response, nil
 }
 
-// RunAndStream executes the agent interaction with streaming responses
+// RunAndStream executes an interaction with the OpenAI model and returns a channel
+// that streams the response tokens as they arrive.
+//
+// Parameters:
+//   - ctx: Context for the request
+//   - agent: Agent configuration including tools and instructions
+//   - messages: Conversation history
+//   - contextVariables: Variables to be used in the conversation
+//   - modelOverride: Optional model override (uses agent's default if empty)
+//   - debug: Enable debug logging
+//   - maxTurns: Maximum number of interaction turns
+//   - executeTools: Whether to execute tool calls
+//
+// Returns a channel of response tokens or an error if the streaming setup fails.
 func (s *Swarm) RunAndStream(
 	ctx context.Context,
 	agent *Agent,
@@ -501,7 +542,22 @@ func (s *Swarm) RunAndStream(
 	return resultChan, nil
 }
 
-// Run executes the agent interaction without streaming
+// Run executes a single interaction with the OpenAI model using the provided agent configuration.
+// It supports both streaming and non-streaming modes, tool execution, and debug logging.
+//
+// Parameters:
+//   - ctx: Context for the request
+//   - agent: Agent configuration including tools and instructions
+//   - messages: Conversation history
+//   - contextVariables: Variables to be used in the conversation
+//   - modelOverride: Optional model override (uses agent's default if empty)
+//   - stream: Enable streaming mode
+//   - debug: Enable debug logging
+//   - maxTurns: Maximum number of interaction turns
+//   - executeTools: Whether to execute tool calls
+//
+// Returns a Response containing the model's output and any tool execution results,
+// or an error if the interaction fails.
 func (s *Swarm) Run(
 	ctx context.Context,
 	agent *Agent,
