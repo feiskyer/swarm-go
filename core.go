@@ -62,6 +62,7 @@ func NewDefaultSwarm() (*Swarm, error) {
 
 	azureAPIKey := os.Getenv("AZURE_OPENAI_API_KEY")
 	azureAPIBase := os.Getenv("AZURE_OPENAI_API_BASE")
+	azureAPIVersion := os.Getenv("AZURE_OPENAI_API_VERSION")
 
 	var missingEnvs []string
 	if azureAPIKey == "" {
@@ -70,12 +71,15 @@ func NewDefaultSwarm() (*Swarm, error) {
 	if azureAPIBase == "" {
 		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_BASE")
 	}
+	if azureAPIVersion == "" {
+		azureAPIVersion = "2025-02-01-preview"
+	}
 
 	if len(missingEnvs) > 0 {
 		return nil, fmt.Errorf("required environment variables not set: %s", strings.Join(missingEnvs, ", "))
 	}
 
-	return NewSwarm(NewAzureOpenAIClient(azureAPIKey, azureAPIBase)), nil
+	return NewSwarm(NewAzureOpenAIClient(azureAPIKey, azureAPIBase, azureAPIVersion)), nil
 }
 
 // getChatCompletion sends a request to OpenAI's chat completion API and returns the response.

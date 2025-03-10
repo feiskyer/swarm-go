@@ -84,14 +84,15 @@ func NewOpenAIClientWithBaseURL(apiKey string, baseURL string) OpenAIClient {
 // Parameters:
 //   - apiKey: The Azure OpenAI API key
 //   - endpoint: The Azure OpenAI endpoint URL
-func NewAzureOpenAIClient(apiKey, endpoint string) OpenAIClient {
+//   - apiVersion: The Azure OpenAI API version
+func NewAzureOpenAIClient(apiKey, endpoint, apiVersion string) OpenAIClient {
 	if apiKey == "" || endpoint == "" {
 		return nil
 	}
 
 	return &openAIClientWrapper{
 		client: openai.NewClient(
-			azure.WithEndpoint(endpoint, "2024-06-01"),
+			azure.WithEndpoint(endpoint, apiVersion),
 			azure.WithAPIKey(apiKey),
 		),
 	}
