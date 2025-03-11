@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -192,8 +193,12 @@ func (w *SimpleFlow) executeStep(ctx context.Context, client *Swarm, step *Simpl
 
 	// Prepare messages
 	messages := make([]map[string]interface{}, 0, len(prevMessages)+2)
+	systemRole := "system"
+	if strings.Contains(w.Model, "o1") || strings.Contains(w.Model, "o3") || strings.Contains(strings.ToLower(w.Model), "deekseek") {
+		systemRole = "user"
+	}
 	messages = append(messages, map[string]interface{}{
-		"role":    "system",
+		"role":    systemRole,
 		"content": w.System,
 	})
 	messages = append(messages, prevMessages...)

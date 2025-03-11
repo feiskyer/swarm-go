@@ -116,7 +116,11 @@ func (s *Swarm) getChatCompletion(
 	}
 
 	// Prepare messages
-	messages := prepareMessages(instructions, history)
+	model := modelOverride
+	if model == "" {
+		model = agent.Model
+	}
+	messages := prepareMessages(instructions, history, model)
 
 	// Prepare tools
 	tools := prepareTools(agent)
@@ -185,9 +189,14 @@ func prepareTools(agent *Agent) []openai.ChatCompletionToolParam {
 	return tools
 }
 
-func prepareMessages(instructions string, history []map[string]interface{}) []openai.ChatCompletionMessageParamUnion {
+func prepareMessages(instructions string, history []map[string]interface{}, model string) []openai.ChatCompletionMessageParamUnion {
 	messages := []openai.ChatCompletionMessageParamUnion{
 		openai.SystemMessage(instructions),
+	}
+	if strings.Contains(model, "o1") || strings.Contains(model, "o3") || strings.Contains(strings.ToLower(model), "deekseek") {
+		messages = []openai.ChatCompletionMessageParamUnion{
+			openai.UserMessage(instructions),
+		}
 	}
 
 	for _, msg := range history {
@@ -439,8 +448,11 @@ func (s *Swarm) RunAndStream(
 				DebugPrint(debug, "Failed to get instructions:", err)
 				return
 			}
-
-			messages := prepareMessages(instructions, history)
+			model := modelOverride
+			if model == "" {
+				model = activeAgent.Model
+			}
+			messages := prepareMessages(instructions, history, model)
 			params := openai.ChatCompletionNewParams{
 				Messages: openai.F(messages),
 				Model:    openai.F(modelOverride),
