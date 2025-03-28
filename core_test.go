@@ -238,7 +238,7 @@ func TestRunAndStream(t *testing.T) {
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
 		Choices: []openai.ChatCompletionChunkChoice{
 			{
-				Delta: openai.ChatCompletionChunkChoicesDelta{
+				Delta: openai.ChatCompletionChunkChoiceDelta{
 					Content: "Test",
 				},
 			},
@@ -311,7 +311,7 @@ func TestRunAndStreamWithToolCalls(t *testing.T) {
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
 		Choices: []openai.ChatCompletionChunkChoice{
 			{
-				Delta: openai.ChatCompletionChunkChoicesDelta{
+				Delta: openai.ChatCompletionChunkChoiceDelta{
 					Content: "Test",
 				},
 			},
@@ -320,10 +320,13 @@ func TestRunAndStreamWithToolCalls(t *testing.T) {
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
 		Choices: []openai.ChatCompletionChunkChoice{
 			{
-				Delta: openai.ChatCompletionChunkChoicesDelta{
-					FunctionCall: openai.ChatCompletionChunkChoicesDeltaFunctionCall{
-						Name:      "testFunc",
-						Arguments: "{}",
+				Delta: openai.ChatCompletionChunkChoiceDelta{
+					ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{{
+						Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{
+							Name:      "testFunc",
+							Arguments: "{}",
+						},
+					},
 					},
 				},
 			},
@@ -395,7 +398,7 @@ func TestRunAndStreamWithAgentTransfer(t *testing.T) {
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
 		Choices: []openai.ChatCompletionChunkChoice{
 			{
-				Delta: openai.ChatCompletionChunkChoicesDelta{
+				Delta: openai.ChatCompletionChunkChoiceDelta{
 					Content: "Test",
 				},
 			},
@@ -404,11 +407,13 @@ func TestRunAndStreamWithAgentTransfer(t *testing.T) {
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
 		Choices: []openai.ChatCompletionChunkChoice{
 			{
-				Delta: openai.ChatCompletionChunkChoicesDelta{
-					FunctionCall: openai.ChatCompletionChunkChoicesDeltaFunctionCall{
-						Name:      "transfer",
-						Arguments: "{}",
-					},
+				Delta: openai.ChatCompletionChunkChoiceDelta{
+					ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{{
+						Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{
+							Name:      "transfer",
+							Arguments: "{}",
+						},
+					}},
 				},
 			},
 		},
@@ -454,7 +459,7 @@ func TestToolPreparationWithContextVariables(t *testing.T) {
 
 	// Check that context_variables is not in the tool parameters
 	for _, tool := range tools {
-		params := tool.Function.Value.Parameters.Value
+		params := tool.Function.Parameters
 		if properties, ok := params["properties"].(map[string]interface{}); ok {
 			if _, exists := properties["context_variables"]; exists {
 				t.Error("context_variables should not be present in tool parameters")
@@ -471,7 +476,7 @@ func TestMessageAccumulation(t *testing.T) {
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
 		Choices: []openai.ChatCompletionChunkChoice{
 			{
-				Delta: openai.ChatCompletionChunkChoicesDelta{
+				Delta: openai.ChatCompletionChunkChoiceDelta{
 					Content: "Test content",
 				},
 			},
@@ -480,11 +485,13 @@ func TestMessageAccumulation(t *testing.T) {
 	mockClient.AddStreamChunk(&openai.ChatCompletionChunk{
 		Choices: []openai.ChatCompletionChunkChoice{
 			{
-				Delta: openai.ChatCompletionChunkChoicesDelta{
-					FunctionCall: openai.ChatCompletionChunkChoicesDeltaFunctionCall{
-						Name:      "testFunc",
-						Arguments: "{}",
-					},
+				Delta: openai.ChatCompletionChunkChoiceDelta{
+					ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{{
+						Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{
+							Name:      "testFunc",
+							Arguments: "{}",
+						},
+					}},
 				},
 			},
 		},

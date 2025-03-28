@@ -72,7 +72,7 @@ func NewDefaultSwarm() (*Swarm, error) {
 		missingEnvs = append(missingEnvs, "AZURE_OPENAI_API_BASE")
 	}
 	if azureAPIVersion == "" {
-		azureAPIVersion = "2025-02-01-preview"
+		azureAPIVersion = "2025-03-01-preview"
 	}
 
 	if len(missingEnvs) > 0 {
@@ -127,13 +127,13 @@ func (s *Swarm) getChatCompletion(
 
 	// Create completion parameters
 	params := openai.ChatCompletionNewParams{
-		Messages: openai.F(messages),
-		Model:    openai.F(modelOverride),
+		Messages: messages,
+		Model:    openai.ChatModel(modelOverride),
 	}
 	if len(tools) > 0 {
-		params.Tools = openai.F(tools)
+		params.Tools = tools
 		if agent.ToolChoice != nil {
-			params.ToolChoice = openai.F(*agent.ToolChoice)
+			params.ToolChoice = *agent.ToolChoice
 		}
 	}
 
@@ -173,16 +173,15 @@ func prepareTools(agent *Agent) []openai.ChatCompletionToolParam {
 			}
 
 			tools = append(tools, openai.ChatCompletionToolParam{
-				Type: openai.F(openai.ChatCompletionToolTypeFunction),
-				Function: openai.F(openai.FunctionDefinitionParam{
-					Name:        openai.String(funcJSON["function"].(map[string]interface{})["name"].(string)),
+				Function: openai.FunctionDefinitionParam{
+					Name:        funcJSON["function"].(map[string]interface{})["name"].(string),
 					Description: openai.String(funcJSON["function"].(map[string]interface{})["description"].(string)),
-					Parameters: openai.F(openai.FunctionParameters{
+					Parameters: openai.FunctionParameters{
 						"type":       "object",
 						"properties": funcJSON["function"].(map[string]interface{})["parameters"].(map[string]interface{})["properties"].(map[string]interface{}),
 						"required":   funcJSON["function"].(map[string]interface{})["parameters"].(map[string]interface{})["required"].([]string),
-					}),
-				}),
+					},
+				},
 			})
 		}
 	}
@@ -210,33 +209,25 @@ func prepareMessages(instructions string, history []map[string]interface{}, mode
 
 		case "function":
 			name, _ := msg["name"].(string)
-			messages = append(messages, openai.FunctionMessage(name, content))
+			messages = append(messages, openai.ToolMessage(content, name))
 		case "tool":
 			toolCallID, _ := msg["tool_call_id"].(string)
-			messages = append(messages, openai.ToolMessage(toolCallID, content))
+			messages = append(messages, openai.ToolMessage(content, toolCallID))
 		default:
-			assistantMsg := openai.ChatCompletionAssistantMessageParam{
-				Role: openai.F(openai.ChatCompletionAssistantMessageParamRoleAssistant),
-				Content: openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{
-					openai.ChatCompletionAssistantMessageParamContent{
-						Type: openai.F(openai.ChatCompletionAssistantMessageParamContentTypeText),
-						Text: openai.F(content),
-					},
-				}),
-			}
+			assistantMsg := openai.AssistantMessage(content)
 			if toolCalls, ok := msg["tool_calls"].([]openai.ChatCompletionMessageToolCall); ok {
 				toolCallParams := make([]openai.ChatCompletionMessageToolCallParam, len(toolCalls))
 				for i, tc := range toolCalls {
 					toolCallParams[i] = openai.ChatCompletionMessageToolCallParam{
-						ID:   openai.String(tc.ID),
-						Type: openai.F(tc.Type),
-						Function: openai.F(openai.ChatCompletionMessageToolCallFunctionParam{
-							Name:      openai.String(tc.Function.Name),
-							Arguments: openai.String(tc.Function.Arguments),
-						}),
+						ID:   tc.ID,
+						Type: tc.Type,
+						Function: openai.ChatCompletionMessageToolCallFunctionParam{
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						},
 					}
 				}
-				assistantMsg.ToolCalls = openai.F(toolCallParams)
+				assistantMsg.OfAssistant.ToolCalls = toolCallParams
 			}
 			messages = append(messages, assistantMsg)
 		}
@@ -454,13 +445,13 @@ func (s *Swarm) RunAndStream(
 			}
 			messages := prepareMessages(instructions, history, model)
 			params := openai.ChatCompletionNewParams{
-				Messages: openai.F(messages),
-				Model:    openai.F(modelOverride),
+				Messages: messages,
+				Model:    modelOverride,
 			}
 			if len(tools) > 0 {
-				params.Tools = openai.F(tools)
+				params.Tools = tools
 				if agent.ToolChoice != nil {
-					params.ToolChoice = openai.F(*agent.ToolChoice)
+					params.ToolChoice = *agent.ToolChoice
 				}
 			}
 			stream, err := s.Client.CreateChatCompletionStream(ctx, params)

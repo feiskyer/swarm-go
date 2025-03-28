@@ -76,8 +76,8 @@ func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, param
 				},
 			}
 
-			// If the chunk has a function call, convert it to a tool call
-			if fc := chunk.Choices[0].Delta.FunctionCall; fc.Name != "" || fc.Arguments != "" {
+			// If the chunk has tool calls, convert them to the appropriate format
+			for _, toolCall := range chunk.Choices[0].Delta.ToolCalls {
 				chunkData["choices"].([]map[string]interface{})[0]["delta"] = map[string]interface{}{
 					"tool_calls": []map[string]interface{}{
 						{
@@ -85,8 +85,8 @@ func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, param
 							"id":    "call_1",
 							"type":  "function",
 							"function": map[string]interface{}{
-								"name":      fc.Name,
-								"arguments": fc.Arguments,
+								"name":      toolCall.Function.Name,
+								"arguments": toolCall.Function.Arguments,
 							},
 						},
 					},

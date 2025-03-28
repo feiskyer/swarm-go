@@ -38,7 +38,7 @@ type OpenAIClient interface {
 // openAIClientWrapper wraps the OpenAI client to implement the OpenAIClient interface.
 // It provides a concrete implementation of the OpenAI API interactions.
 type openAIClientWrapper struct {
-	client *openai.Client
+	client openai.Client
 }
 
 // NewOpenAIClient creates a new OpenAI client wrapper with the provided API key.
