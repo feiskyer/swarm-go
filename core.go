@@ -101,6 +101,7 @@ func (s *Swarm) getChatCompletion(
 	contextVariables map[string]interface{},
 	modelOverride string,
 	debug bool,
+	jsonMode bool,
 ) (*openai.ChatCompletion, error) {
 	if agent == nil {
 		return nil, errors.New("agent cannot be nil")
@@ -129,6 +130,11 @@ func (s *Swarm) getChatCompletion(
 	params := openai.ChatCompletionNewParams{
 		Messages: messages,
 		Model:    openai.ChatModel(modelOverride),
+	}
+	if jsonMode {
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+		}
 	}
 	if len(tools) > 0 {
 		params.Tools = tools
@@ -408,6 +414,7 @@ func (s *Swarm) RunAndStream(
 	debug bool,
 	maxTurns int,
 	executeTools bool,
+	jsonMode bool,
 ) (<-chan map[string]interface{}, error) {
 	if len(messages) == 0 {
 		return nil, ErrEmptyMessages
@@ -447,6 +454,11 @@ func (s *Swarm) RunAndStream(
 			params := openai.ChatCompletionNewParams{
 				Messages: messages,
 				Model:    modelOverride,
+			}
+			if jsonMode {
+				params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+					OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+				}
 			}
 			if len(tools) > 0 {
 				params.Tools = tools
@@ -575,9 +587,10 @@ func (s *Swarm) Run(
 	debug bool,
 	maxTurns int,
 	executeTools bool,
+	jsonMode bool,
 ) (*Response, error) {
 	if stream {
-		ch, err := s.RunAndStream(ctx, agent, messages, contextVariables, modelOverride, debug, maxTurns, executeTools)
+		ch, err := s.RunAndStream(ctx, agent, messages, contextVariables, modelOverride, debug, maxTurns, executeTools, false)
 		if err != nil {
 			return nil, err
 		}
@@ -603,7 +616,7 @@ func (s *Swarm) Run(
 	initLen := len(messages)
 
 	for len(history)-initLen < maxTurns {
-		completion, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, debug)
+		completion, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, debug, jsonMode)
 		if err != nil {
 			return nil, err
 		}

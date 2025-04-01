@@ -51,7 +51,7 @@ func main() {
 
 	// Run the conversation with proper error handling
 	ctx := context.Background()
-	response, err := client.Run(ctx, englishAgent, messages, nil, "gpt-4o", false, true, 10, true)
+	response, err := client.Run(ctx, englishAgent, messages, nil, "gpt-4o", false, true, 10, true, false)
 	if err != nil {
 		fmt.Printf("Error during conversation: %v\n", err)
 		os.Exit(1)

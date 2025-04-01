@@ -170,7 +170,7 @@ func TestRun(t *testing.T) {
 		},
 	}
 
-	response, err := swarm.Run(ctx, agent, messages, nil, "", false, false, 1, true)
+	response, err := swarm.Run(ctx, agent, messages, nil, "", false, false, 1, true, false)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 		return
@@ -224,6 +224,7 @@ func TestRunWithMockClient(t *testing.T) {
 		false,
 		1,
 		true,
+		false,
 	)
 
 	AssertNoError(t, err, "Run should not return error")
@@ -262,6 +263,7 @@ func TestRunAndStream(t *testing.T) {
 		false,
 		10,
 		true,
+		false,
 	)
 
 	if err != nil {
@@ -296,6 +298,7 @@ func TestRunAndStreamWithEmptyMessages(t *testing.T) {
 		false,
 		10,
 		true,
+		false,
 	)
 
 	if err == nil {
@@ -350,6 +353,7 @@ func TestRunAndStreamWithToolCalls(t *testing.T) {
 		false,
 		10,
 		true,
+		false,
 	)
 
 	if err != nil {
@@ -423,7 +427,7 @@ func TestRunAndStreamWithAgentTransfer(t *testing.T) {
 		{"role": "user", "content": "Hello"},
 	}
 
-	ch, err := swarm.RunAndStream(context.Background(), agent1, messages, nil, "", false, 3, true)
+	ch, err := swarm.RunAndStream(context.Background(), agent1, messages, nil, "", false, 3, true, false)
 	if err != nil {
 		t.Fatalf("RunAndStream failed: %v", err)
 	}
@@ -502,7 +506,7 @@ func TestMessageAccumulation(t *testing.T) {
 		{"role": "user", "content": "Hello"},
 	}
 
-	ch, err := swarm.RunAndStream(context.Background(), agent, messages, nil, "", false, 1, true)
+	ch, err := swarm.RunAndStream(context.Background(), agent, messages, nil, "", false, 1, true, false)
 	if err != nil {
 		t.Fatalf("RunAndStream failed: %v", err)
 	}

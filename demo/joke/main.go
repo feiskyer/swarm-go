@@ -64,7 +64,7 @@ func handleStartEvent(ctx *swarm.Context, event swarm.Event, client *swarm.Swarm
 		},
 	}
 
-	response, err := client.Run(ctx.Context(), jokeGeneratorAgent, messages, nil, "gpt-4", false, false, 10, true)
+	response, err := client.Run(ctx.Context(), jokeGeneratorAgent, messages, nil, "gpt-4", false, false, 10, true, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate joke: %w", err)
 	}
@@ -102,7 +102,7 @@ func handleJokeEvent(ctx *swarm.Context, event swarm.Event, client *swarm.Swarm)
 		},
 	}
 
-	response, err := client.Run(ctx.Context(), jokeCriticAgent, messages, nil, "gpt-4", false, false, 10, true)
+	response, err := client.Run(ctx.Context(), jokeCriticAgent, messages, nil, "gpt-4", false, false, 10, true, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to critique joke: %w", err)
 	}

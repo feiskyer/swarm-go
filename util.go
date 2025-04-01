@@ -386,7 +386,7 @@ func RunDemoLoop(startingAgent *Agent, contextVariables map[string]interface{}, 
 
 		ctx := context.Background()
 		if stream {
-			responseChan, err := client.RunAndStream(ctx, agent, messages, contextVariables, "gpt-4o", debug, 10, true)
+			responseChan, err := client.RunAndStream(ctx, agent, messages, contextVariables, "gpt-4o", debug, 10, true, false)
 			if err != nil {
 				fmt.Printf("Error in stream: %v\n", err)
 				continue
@@ -398,7 +398,7 @@ func RunDemoLoop(startingAgent *Agent, contextVariables map[string]interface{}, 
 				agent = response.Agent
 			}
 		} else {
-			response, err := client.Run(ctx, agent, messages, contextVariables, "gpt-4o", false, debug, 10, true)
+			response, err := client.Run(ctx, agent, messages, contextVariables, "gpt-4o", false, debug, 10, true, false)
 			if err != nil {
 				fmt.Printf("Error in run: %v\n", err)
 				continue

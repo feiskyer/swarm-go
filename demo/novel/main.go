@@ -104,7 +104,7 @@ func handleStartEvent(ctx *swarm.Context, event swarm.Event, client *swarm.Swarm
 		},
 	}
 
-	response, err := client.Run(ctx.Context(), outlineAgent, messages, nil, "gpt-4", false, false, 10, true)
+	response, err := client.Run(ctx.Context(), outlineAgent, messages, nil, "gpt-4", false, false, 10, true, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate outline: %w", err)
 	}
@@ -177,7 +177,7 @@ func handleWriteChapter(ctx *swarm.Context, event swarm.Event, client *swarm.Swa
 		},
 	}
 
-	response, err := client.Run(ctx.Context(), chapterAgent, messages, nil, "gpt-4", false, false, 10, true)
+	response, err := client.Run(ctx.Context(), chapterAgent, messages, nil, "gpt-4", false, false, 10, true, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write chapter: %w", err)
 	}

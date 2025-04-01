@@ -28,6 +28,8 @@ type SimpleFlow struct {
 	Verbose bool `yaml:"verbose" json:"verbose"`
 	// Timeout specifies the timeout for the entire workflow.
 	Timeout time.Duration `yaml:"timeout" json:"timeout"`
+	// JSONMode indicates whether to use JSON format for input and output.
+	JSONMode bool `yaml:"json_mode" json:"json_mode"`
 }
 
 // SimpleFlowStep defines a single step within a SimpleFlow workflow. Each step
@@ -208,7 +210,7 @@ func (w *SimpleFlow) executeStep(ctx context.Context, client *Swarm, step *Simpl
 	})
 
 	// Execute step with error handling
-	response, err := client.Run(stepCtx, step.Agent, messages, mergedVars, w.Model, false, w.Verbose, w.MaxTurns, true)
+	response, err := client.Run(stepCtx, step.Agent, messages, mergedVars, w.Model, false, w.Verbose, w.MaxTurns, true, w.JSONMode)
 	if err != nil {
 		return &SimpleStepResult{
 			StepName: step.Name,
